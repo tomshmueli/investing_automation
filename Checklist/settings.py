@@ -72,10 +72,6 @@ PRICING_POWER_LOW_VOLATILITY = 3.0  # Std dev of margins < 3 is low
 PRICING_POWER_HIGH_VOLATILITY = 5.0  # High volatility threshold (stdev > 5)
 PRICING_POWER_TREND_THRESHOLD = 1.0  # Trend significance threshold (>1% change)
 
-# constants for Management section
-HEADERS = {
-    "User-Agent": "MyInvestmentApp/1.0 (tomwork737@gmail.com)"
-}
 MANAGEMENT_ROWS = {
     "Soul in the Game Score": 29,
     "Inside Ownership Score": 30,
