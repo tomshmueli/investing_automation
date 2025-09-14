@@ -792,7 +792,7 @@ def check_market_loser(ticker):
     log_debug(f"Checking market performance for {ticker}")
     
     try:
-        from stock import get_stock_performance
+        from Checklist.stock import get_stock_performance
         
         stock_history, sp500_history, start_date = get_stock_performance(ticker, "5y")
         
