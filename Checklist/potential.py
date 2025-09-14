@@ -7,6 +7,7 @@ with comprehensive business-focused logging.
 """
 
 import logging
+import math
 import yfinance as yf
 from datetime import datetime
 from Checklist.utilities.logging_config import get_logger, log_score, log_data_issue, log_segment_start, log_segment_complete, log_debug
@@ -27,6 +28,36 @@ logger = get_logger(__name__)
 
 # Setup logging (backward compatibility)
 setup_logging()
+
+
+def _safe_pct_change(current_value, prior_value):
+    """
+    Returns percentage change (current - prior) / prior, or None if prior is zero/invalid.
+    Guards against division-by-zero and non-finite values.
+    """
+    try:
+        prior = float(prior_value)
+        current = float(current_value)
+        if not math.isfinite(prior) or not math.isfinite(current) or prior == 0.0:
+            return None
+        return (current - prior) / prior
+    except Exception:
+        return None
+
+
+def _compute_ol_ratio(revenue_change, operating_income_change, min_revenue_change):
+    """
+    Computes operating leverage ratio = op_change / rev_change when revenue_change
+    exceeds the minimum threshold and both changes are valid. Returns 0.0 otherwise.
+    """
+    if revenue_change is None or operating_income_change is None:
+        return 0.0
+    if revenue_change <= min_revenue_change:
+        return 0.0
+    try:
+        return abs(operating_income_change / revenue_change)
+    except Exception:
+        return 0.0
 
 
 def calculate_optionality(ticker: str):
@@ -196,24 +227,41 @@ def calculate_operating_leverage(ticker: str):
     try:
         revenue_ttm, revenue_1y, revenue_2y, revenue_3y, op_income_ttm, op_income_1y, op_income_2y, op_income_3y = extract_financial_data(ticker)
 
-        rev_change_ttm = (revenue_ttm - revenue_1y) / revenue_1y
-        op_change_ttm = (op_income_ttm - op_income_1y) / op_income_1y
+        # Safe percentage changes (guard against zero/NaN baselines)
+        rev_change_ttm = _safe_pct_change(revenue_ttm, revenue_1y)
+        op_change_ttm = _safe_pct_change(op_income_ttm, op_income_1y)
 
-        rev_change_1y = (revenue_1y - revenue_2y) / revenue_2y
-        op_change_1y = (op_income_1y - op_income_2y) / op_income_2y
+        rev_change_1y = _safe_pct_change(revenue_1y, revenue_2y)
+        op_change_1y = _safe_pct_change(op_income_1y, op_income_2y)
 
-        rev_change_2y = (revenue_2y - revenue_3y) / revenue_3y
-        op_change_2y = (op_income_2y - op_income_3y) / op_income_3y
+        rev_change_2y = _safe_pct_change(revenue_2y, revenue_3y)
+        op_change_2y = _safe_pct_change(op_income_2y, op_income_3y)
 
-        ol_ttm = (op_change_ttm / rev_change_ttm) if rev_change_ttm > MIN_REVENUE_CHANGE else 0
-        ol_1y = (op_change_1y / rev_change_1y) if rev_change_1y > MIN_REVENUE_CHANGE else 0
-        ol_2y = (op_change_2y / rev_change_2y) if rev_change_2y > MIN_REVENUE_CHANGE else 0
+        # Compute OL ratios for available windows
+        weights = {
+            "ttm": 0.4,
+            "1y": 0.3,
+            "2y": 0.2,
+        }
 
-        final_ol = abs(0.4 * ol_ttm) + abs(0.3 * ol_1y) + abs(0.2 * ol_2y)
+        ratios = {}
+        if rev_change_ttm is not None and op_change_ttm is not None:
+            ratios["ttm"] = _compute_ol_ratio(rev_change_ttm, op_change_ttm, MIN_REVENUE_CHANGE)
+        if rev_change_1y is not None and op_change_1y is not None:
+            ratios["1y"] = _compute_ol_ratio(rev_change_1y, op_change_1y, MIN_REVENUE_CHANGE)
+        if rev_change_2y is not None and op_change_2y is not None:
+            ratios["2y"] = _compute_ol_ratio(rev_change_2y, op_change_2y, MIN_REVENUE_CHANGE)
+
+        # Normalize weighted average across available windows (exclude missing windows)
+        total_weight = sum(weights[w] for w in ratios.keys())
+        if total_weight > 0:
+            final_ol = sum(weights[w] * ratios[w] for w in ratios.keys()) / total_weight
+        else:
+            final_ol = 0.0
 
         if final_ol <= 0:
             score = 0
-            reasoning = "No operating leverage"
+            reasoning = "No operating leverage or insufficient comparable data"
         elif final_ol <= 1:
             score = 1
             reasoning = f"Low operating leverage ({final_ol:.2f})"
