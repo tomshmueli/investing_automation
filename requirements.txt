@@ -2,7 +2,6 @@ pandas~=2.2.3
 numpy~=1.26.4
 yfinance~=0.2.54
 openpyxl~=3.1.5
-urllib3==1.26.16
 yahooquery~=2.2.5
 requests~=2.32.3
 beautifulsoup4~=4.12.3
@@ -14,4 +13,4 @@ spacy>=3.7.0
 # English language model for spaCy (core component for semantic analysis)
 https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
  
-gradio>=4.0
+gradio>=4.44.1

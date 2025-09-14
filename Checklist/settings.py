@@ -31,6 +31,7 @@ R_AND_D_THRESHOLD_LOW = 0.15
 EXCEL_NAME = "my_Portfolio_Dashboard"
 PORTFOLIO_SHEET_NAME = "Portfolio"  # The sheet responsible for storing the tickers
 FEROLDI_SHEET_NAME = "Feroldi Quality Score" # The sheet responsible for storing the Feroldi Scores / checklist
+START_COL = 4  # Column index where tickers start in the sheet
 FINANCIAL_ROWS = {
     "Resilience Score": 5,     # Row for Resilience Score
     "Gross Margin Score": 6,  # Row for Gross Margin Score

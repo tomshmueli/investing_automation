@@ -134,6 +134,30 @@ Portfolio_automation_checklist/
 └── requirements.txt       # Python dependencies
 ```
 
+## Google Sheets Sync (Apps Script)
+
+The app can post a matrix payload to an Apps Script Web App that accepts a JSON body with `mode: "write_matrix"` and writes values by row/column according to the provided `row_map` and `start_col`.
+
+Expected request body (shape):
+
+```json
+{
+  "secret": "<shared_secret>",
+  "mode": "write_matrix",
+  "sheet_name": "Feroldi Quality Score",
+  "start_col": 4,
+  "tickers": ["AAPL", "MSFT"],
+  "row_map": {"Resilience Score": 5, "Gross Margin Score": 6},
+  "values": {
+    "AAPL": {"Resilience Score": 5, "Gross Margin Score": 4},
+    "MSFT": {"Resilience Score": 4, "Gross Margin Score": 5}
+  },
+  "totals": {"AAPL": 70, "MSFT": 72}
+}
+```
+
+The handler should compute the column as `start_col + ticker_index` and write non-null values only. Return `{ ok: true, written: <count> }` on success.
+
 ## 🧪 **Testing**
 
 The project includes a comprehensive test suite with proper organization:

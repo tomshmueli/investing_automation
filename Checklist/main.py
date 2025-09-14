@@ -17,7 +17,7 @@ from Checklist.customers import fetch_and_score_customers
 from Checklist.penalties import fetch_and_score_penalties
 from Checklist.specific_factors import fetch_and_score_specific_factors
 from Checklist.settings import EXCEL_NAME, PORTFOLIO_SHEET_NAME, FEROLDI_SHEET_NAME, FINANCIAL_ROWS, POTENTIAL_ROWS, \
-    CUSTOMERS_ROWS, MANAGEMENT_ROWS, STOCK_ROWS, PENALTIES_ROWS, SPECIFIC_FACTORS_ROWS
+    CUSTOMERS_ROWS, MANAGEMENT_ROWS, STOCK_ROWS, PENALTIES_ROWS, SPECIFIC_FACTORS_ROWS, START_COL
 from Checklist.utils import setup_logging
 from Checklist.utilities.logging_config import get_logger, log_data_issue, log_debug
 
@@ -178,7 +178,7 @@ def update_excel(results_dict, excel_path, sheet_name):
         for section, results in results_dict.items():
             rows_mapping = SECTION_ROW_MAPS.get(section, {})
 
-            for col_idx, (ticker, scores) in enumerate(results.items(), start=4):
+            for col_idx, (ticker, scores) in enumerate(results.items(), start=START_COL):
                 if scores is None:
                     log_data_issue(ticker, f"Skipping {ticker} due to missing scores.")
                     continue

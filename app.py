@@ -22,17 +22,17 @@ def parse_tickers(raw: str) -> List[str]:
     return [p for p in parts if p]
 
 
-def _post_to_apps_script(df: pd.DataFrame) -> dict:
+def _post_to_apps_script(payload: Dict[str, Any]) -> dict:
     url = os.environ.get("APPS_SCRIPT_URL")
     secret = os.environ.get("APPS_SCRIPT_SECRET")
     if not url or not secret:
         raise RuntimeError("APPS_SCRIPT_URL or APPS_SCRIPT_SECRET is missing.")
 
-    payload = {
-        "secret": secret,
-        "rows": df.to_dict(orient="records")
-    }
-    r = requests.post(url, json=payload, timeout=30)
+    # Ensure secret is attached without overwriting provided payload
+    body = dict(payload)
+    body["secret"] = secret
+
+    r = requests.post(url, json=body, timeout=30)
     try:
         data = r.json()
     except Exception:
@@ -43,7 +43,12 @@ def _post_to_apps_script(df: pd.DataFrame) -> dict:
 
     sheet_id = os.getenv("GSHEET_ID")  # optional, just for link building
     sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}" if sheet_id else None
-    return {"appended": data.get("appended", 0), "sheet_url": sheet_url}
+    # Support both append and matrix responses
+    return {
+        "appended": data.get("appended", 0),
+        "written": data.get("written", 0),
+        "sheet_url": sheet_url,
+    }
 
 
 def _df_to_csv_bytes(df: pd.DataFrame) -> bytes:
@@ -62,7 +67,7 @@ def _df_to_xlsx_bytes(df: pd.DataFrame) -> bytes:
 # -----------------------------
 # Adapter to your existing engine
 # -----------------------------
-def run_checklist_adapter(tickers: List[str]) -> Tuple[pd.DataFrame, dict]:
+def run_checklist_adapter(tickers: List[str]) -> Tuple[pd.DataFrame, Dict[str, Dict[str, Dict[str, Any]]], dict]:
     """
     Import and call the real scoring function(s) used today. Do NOT modify business logic; only adapt I/O.
 
@@ -72,6 +77,7 @@ def run_checklist_adapter(tickers: List[str]) -> Tuple[pd.DataFrame, dict]:
     """
     # Import inside to avoid import-time side-effects if app is imported by hosts
     from Checklist.main import process_all_sections_batch, calculate_total_score, SECTION_ROW_MAPS
+    from Checklist.settings import FEROLDI_SHEET_NAME, START_COL
 
     # Keep the same default sections order as CLI default
     sections_in_order: List[str] = [
@@ -115,7 +121,56 @@ def run_checklist_adapter(tickers: List[str]) -> Tuple[pd.DataFrame, dict]:
         rows.append(row)
 
     df = pd.DataFrame(rows, columns=ordered_columns)
-    return df, {"count": len(df)}
+
+    return df, results_by_section, {"count": len(df)}
+
+
+def _merge_row_maps(section_row_maps: Dict[str, Dict[str, int]]) -> Dict[str, int]:
+    merged: Dict[str, int] = {}
+    for _section, mapping in section_row_maps.items():
+        merged.update(mapping)
+    return merged
+
+
+def build_matrix_payload(
+    tickers: List[str],
+    results_by_section: Dict[str, Dict[str, Dict[str, Any]]]
+) -> Dict[str, Any]:
+    from Checklist.main import SECTION_ROW_MAPS, calculate_total_score
+    from Checklist.settings import FEROLDI_SHEET_NAME, START_COL
+
+    # Build merged row map across all sections
+    row_map: Dict[str, int] = _merge_row_maps(SECTION_ROW_MAPS)
+
+    # Values: ticker -> metric -> value
+    values: Dict[str, Dict[str, Any]] = {}
+    for ticker in tickers:
+        t_values: Dict[str, Any] = {}
+        for section, section_results in results_by_section.items():
+            per_ticker = section_results.get(ticker, {}) or {}
+            for metric_name, value in per_ticker.items():
+                # Only include metrics that exist in the row_map
+                if metric_name in row_map:
+                    # Keep numeric types when available; leave as-is otherwise
+                    t_values[metric_name] = value
+        values[ticker] = t_values
+
+    # Optional totals per existing logic
+    totals: Dict[str, Any] = {}
+    for ticker in tickers:
+        total_score, _ = calculate_total_score(results_by_section, ticker)
+        totals[ticker] = total_score
+
+    payload: Dict[str, Any] = {
+        "mode": "write_matrix",
+        "sheet_name": FEROLDI_SHEET_NAME,
+        "start_col": START_COL,
+        "tickers": tickers,
+        "row_map": row_map,
+        "values": values,
+        "totals": totals,
+    }
+    return payload
 
 
 # -----------------------------
@@ -129,7 +184,7 @@ def run_pipeline(raw_tickers: str, write_to_sheet: bool):
 
     # Call existing engine via adapter
     try:
-        df, meta = run_checklist_adapter(tickers)
+        df, results_by_section, meta = run_checklist_adapter(tickers)
     except Exception as e:
         return f"Engine error: {e}", None, None, None, None
 
@@ -138,9 +193,14 @@ def run_pipeline(raw_tickers: str, write_to_sheet: bool):
     status = f"Processed {len(df)} tickers."
     if write_to_sheet:
         try:
-            res = _post_to_apps_script(df)
+            matrix_payload = build_matrix_payload(tickers, results_by_section)
+            res = _post_to_apps_script(matrix_payload)
             sheet_url = res.get("sheet_url")
-            status = f"Processed {len(df)} tickers and wrote to Google Sheets."
+            written = res.get("written") or res.get("appended")
+            if written:
+                status = f"Processed {len(df)} tickers and wrote to Google Sheets."
+            else:
+                status = f"Processed {len(df)} tickers and attempted to write to Google Sheets."
         except Exception as e:
             status = f"Processed {len(df)} tickers. Google Sheets write failed: {e}"
 
@@ -199,6 +259,7 @@ app = demo  # for hosts that import `app`
 if __name__ == "__main__":
     # Allow overriding port via env (useful for cloud hosts)
     port = int(os.getenv("PORT", "7860"))
-    demo.launch(server_name="0.0.0.0", server_port=port)
+    share_flag = os.getenv("GRADIO_SHARE", "true").lower() in {"1", "true", "yes", "y"}
+    demo.launch(server_name="127.0.0.1", server_port=port, share=share_flag)
 
 
